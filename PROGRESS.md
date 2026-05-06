@@ -1,37 +1,38 @@
 # Threads Tracker — 專案進度（v3 重置）
 
 > 跨 session 的單一狀態真相。每次有實質進展就更新。
-> 完整企劃見 `threads_tracker_proposal_v3.md`、任務級時程見 `SCHEDULE.md`（v2 已過時，保留作為歷史對照）。
+> 完整企劃見 `threads_tracker_proposal_v3.md`、任務級里程碑見 `SCHEDULE.md`（v2 已過時，保留作為歷史對照）。
+> 進度以里程碑（M1–M8）追蹤，不再用週數。
 
 **Last updated:** 2026-05-07（v3 reset day）
 
 ---
 
-## v3 八週完成度
+## v3 里程碑完成度
 
-| 週 | 主題 | 狀態 | 備註 |
-|----|------|------|------|
-| W1 | Apify 可行性驗證 | ⏳ 阻塞中 | 沒 token，今天先寫完企劃書 |
-| W2 | 探索層 + DB 重構 | ❌ | 新 schema 待設計 migration |
-| W3 | 評分層 | ❌ | Haiku 評分 prompt 待寫 |
-| W4 | 候選排程 + 推送層 | ❌ | inline button 流程待寫 |
-| W5 | 收藏追蹤層 | ❌ | 四類後續事件偵測待寫 |
-| W6 | 問答層 | ❌ | `/ask` 對話模式待寫 |
-| W7 | 評估與調優 | ❌ | 收藏率 / 後續命中率指標 |
-| W8 | 報告與 demo | ❌ | 案例分析 + 問答自評 |
+| 里程碑 | 主題 | 狀態 | 備註 |
+|--------|------|------|------|
+| M1 | Apify 可行性驗證 | ⏳ 阻塞中 | 沒 token，今天先寫完企劃書 |
+| M2 | 探索層 + DB 重構 | ❌ | 新 schema 待設計 migration |
+| M3 | 評分層 | ❌ | Haiku 評分 prompt 待寫 |
+| M4 | 候選排程 + 推送層 | ❌ | inline button 流程待寫 |
+| M5 | 收藏追蹤層 | ❌ | 四類後續事件偵測待寫 |
+| M6 | 問答層 | ❌ | `/ask` 對話模式待寫 |
+| M7 | 評估與調優 | ❌ | 收藏率 / 後續命中率指標 |
+| M8 | 報告與 demo | ❌ | 案例分析 + 問答自評 |
 
 ---
 
 ## 從 v1 baseline 繼承的資產（評估後續處置）
 
-v1 (W1–W4) 已完成的東西，按 v3 架構重新審視：
+v1 已完成的東西，按 v3 架構重新審視：
 
 | 既有檔 | 處置 | 備註 |
 |--------|------|------|
 | `config.py` / `db.py` / `cli.py` / `logging.py` | ✅ 留 | 基礎設施可直接沿用 |
 | `models.py` | 🔧 **大改** | 新增 `candidate_posts` / `scoring_records` / `daily_pushes` / `feedback` / `qa_sessions` / `qa_messages` / `keyword_seeds`；現有 `tracked_posts` 改為 `candidate_post_id` FK |
 | `alembic/versions/a1efa9e7d751_*.py` | 🔧 重生 | schema 大改後重建 migration |
-| `scrapers/apify.py` `fake.py` `factory.py` | ✅ 留 | 仍是主資料來源，欄位 mapping 等 W1 驗證 |
+| `scrapers/apify.py` `fake.py` `factory.py` | ✅ 留 | 仍是主資料來源，欄位 mapping 等 M1 驗證 |
 | `services/tracking.py` | 🔧 改 | `add_tracked_post` 入口從「使用者貼 url」改為「使用者按 ❤️ 升格 candidate_post」 |
 | `services/polling.py` | ✅ 留 | tier_for_age + select_due_posts 邏輯沿用 |
 | `services/detection.py` | 🔧 改 | `evaluate_hot_signal` 改為「重大進展偵測」用，給追蹤層 |
@@ -53,14 +54,14 @@ v1 (W1–W4) 已完成的東西，按 v3 架構重新審視：
 
 ## 下一步（單一優先）
 
-**W1：Apify 可行性驗證**。沒 token 之前無法前進。具體：
+**M1：Apify 可行性驗證**。沒 token 之前無法前進。具體：
 
 1. 註冊 Apify、拿到 `APIFY_TOKEN` 寫進 `.env`
 2. 用 `automation-lab/threads-scraper` 跑一次「關鍵字 search 模式」（不是抓單一 url），確認能不能用「後來」「求後續」這類觸發詞流式取得貼文
 3. 校正 `_normalize_post`：欄位名（threads_post_id / username / like_count / reply_count / repost_count / replies）對哪幾個、要改哪些
 4. 估免費 / 付費額度：每跑 100 次 search 用掉多少 quota，決定是否能撐每 60 分鐘 × 30 種子的探索頻率
 
-如果 W1 結束 token 仍拿不到，**進入備案**：用 fake scraper 把整條流水線跑通，案例分析章節改用「模擬資料」並在報告中誠實說明。
+如果 M1 結束 token 仍拿不到，**進入備案**：用 fake scraper 把整條流水線跑通，案例分析章節改用「模擬資料」並在報告中誠實說明。
 
 ---
 
@@ -89,7 +90,7 @@ v1 (W1–W4) 已完成的東西，按 v3 架構重新審視：
 
 ## 已知未驗證 / 風險
 
-- Apify Threads Scraper 的 search 模式實際吞吐量與配額（W1 要驗）
+- Apify Threads Scraper 的 search 模式實際吞吐量與配額（M1 要驗）
 - Apify 欄位名（`_normalize_post` 是猜的）
 - 重量 context 問答 token 成本實測（預估 $0.1/次 但沒驗）
 - Threads 搜尋 cookie 認證限制是否影響 Actor 可用性
@@ -104,7 +105,7 @@ uv sync && uv run pytest                             # baseline 應該 19 passed
 uv run alembic current                               # 目前 a1efa9e7d751，v3 會重生
 uv run threads-tracker --help                        # 列 api / bot
 
-# v3 schema 重置（W2 開工前）
+# v3 schema 重置（M2 開工前）
 rm data/threads_tracker.sqlite3
 uv run alembic upgrade head
 ```

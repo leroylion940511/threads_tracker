@@ -1,11 +1,11 @@
-# Threads Tracker v3 — 任務級時程表
+# Threads Tracker v3 — 任務級里程碑
 
-> 與 `threads_tracker_proposal_v3.md` §七 對應，但展開到可勾選任務粒度。
-> 每週開工前確認上週「完成判準」全部達標再進下週。
+> 與 `threads_tracker_proposal_v3.md` §七 對應，展開到可勾選任務粒度。
+> 每個里程碑「完成判準」全部達標後才進下一個。沒有週數，只看任務。
 
 ---
 
-## W1 — Apify 可行性驗證（阻塞所有後續）
+## M1 — Apify 可行性驗證（阻塞所有後續）
 
 **前置**：無
 **完成判準**：能用關鍵字穩定取得貼文流，知道每月成本上限
@@ -16,13 +16,13 @@
 - [ ] 1.4 比對 `scrapers/apify.py::_normalize_post` 欄位名，列出哪些對 / 哪些要改
 - [ ] 1.5 修 `_normalize_post`，跑通到 `tracking.add_tracked_post` 能寫入一筆真實 candidate
 - [ ] 1.6 跑 10 次 search、記錄 compute units 消耗，推算每 60 分鐘 × 30 種子的月成本
-- [ ] 1.7 寫一頁 W1 結論（成本是否可接受、欄位 mapping 結果），決定 GO / NO-GO
+- [ ] 1.7 寫一頁 M1 結論（成本是否可接受、欄位 mapping 結果），決定 GO / NO-GO
 
 ---
 
-## W2 — 探索層 + DB 重構
+## M2 — 探索層 + DB 重構
 
-**前置**：W1 GO
+**前置**：M1 GO
 **完成判準**：每 60 分鐘自動跑一次 discovery，寫入 `candidate_posts`
 
 - [ ] 2.1 在 markdown 畫 v3 完整 ER 圖（10 張表、FK 關係）
@@ -36,9 +36,9 @@
 
 ---
 
-## W3 — 評分層
+## M3 — 評分層
 
-**前置**：W2 `candidate_posts` 有真實資料累積（至少 200 筆）
+**前置**：M2 `candidate_posts` 有真實資料累積（至少 200 筆）
 **完成判準**：每 30 分鐘自動評分新 candidate，產 final_score 並寫 `scoring_records`
 
 - [ ] 3.1 寫 `services/scoring.py` 第一層硬規則：互動速度 / 粉絲數 / 文字長度 / 繁中檢測 / 業配黑名單
@@ -47,14 +47,14 @@
 - [ ] 3.4 寫加權合併：`final_score = 0.4·v + 0.3·s + 0.2·g + 0.1·n`
 - [ ] 3.5 寫 `scoring_records` 三段式寫入（rules → haiku → final），每段記 `cost_usd`
 - [ ] 3.6 接 `scheduler.py`：新增 `scoring_job` 每 30 分鐘批次評分尚未評分的 candidate
-- [ ] 3.7 從 W2 資料隨機抽 30 篇人工標記（track / skip），跟 Haiku verdict 對比，記準確率
+- [ ] 3.7 從 M2 資料隨機抽 30 篇人工標記（track / skip），跟 Haiku verdict 對比，記準確率
 - [ ] 3.8 unit test：硬規則 + 加權邏輯（mock Haiku）
 
 ---
 
-## W4 — 候選排程層 + 推送層
+## M4 — 候選排程層 + 推送層
 
-**前置**：W3 `final_score` 可算
+**前置**：M3 `final_score` 可算
 **完成判準**：每日 09:00 推 5 篇到 Telegram，破例觸發即時推送，按鈕回寫 `feedback`
 
 - [ ] 4.1 寫 `services/feed.py::pick_daily_top5`：從過去 24h 候選池選 3 已爆 + 2 早期
@@ -68,9 +68,9 @@
 
 ---
 
-## W5 — 收藏追蹤層
+## M5 — 收藏追蹤層
 
-**前置**：W4 ❤️ 按鈕能寫 `feedback`
+**前置**：M4 ❤️ 按鈕能寫 `feedback`
 **完成判準**：收藏一篇後，系統自動偵測四類後續事件並推送
 
 - [ ] 5.1 寫升格邏輯：`feedback.action='collect'` → 建 `tracked_posts` row，啟動分級輪詢
@@ -86,9 +86,9 @@
 
 ---
 
-## W6 — 問答層
+## M6 — 問答層
 
-**前置**：W5 `tracked_posts` 與 `related_posts` 有資料
+**前置**：M5 `tracked_posts` 與 `related_posts` 有資料
 **完成判準**：`/ask <id>` 能進入問答模式、多輪對話、`/exit` 或超時離開、token 成本實測過
 
 - [ ] 6.1 寫 `services/qa.py`：session 狀態管理（每使用者同時只能一個 active session，記憶體 dict 即可）
@@ -102,14 +102,14 @@
 
 ---
 
-## W7 — 評估與調優
+## M7 — 評估與調優
 
-**前置**：W6 完整流水線可跑、系統至少跑了 7 天累積真實資料
+**前置**：M6 完整流水線可跑、系統累積至少 7 天真實資料
 **完成判準**：產出收藏率 / 後續命中率數字、30 組問答自評結果、有調過至少一輪 prompt / 閾值
 
 - [ ] 7.1 寫評估腳本 `scripts/eval_collection_rate.py`：`SUM(feedback collect) / SUM(daily_pushes)`，依 push_type 分組
 - [ ] 7.2 寫評估腳本 `scripts/eval_followup_hit.py`：30 天內 `related_posts ≥ 1` 的 `tracked_posts` 比例
-- [ ] 7.3 系統 7 天無人工介入運行，蒐集真實資料
+- [ ] 7.3 系統連續 7 天無人工介入運行，蒐集真實資料
 - [ ] 7.4 分析「被 👎 / 🔕 的 candidate」共同特徵，調 Haiku 評分 prompt
 - [ ] 7.5 分析 `keyword_seeds.total_collected = 0` 的種子，標 `enabled=false`
 - [ ] 7.6 抽 30 組 (問題, 回答) pair，研究者自評三項：事實正確性 / 引用精準度 / 幻覺有無
@@ -117,14 +117,14 @@
 
 ---
 
-## W8 — 報告與 demo
+## M8 — 報告與 demo
 
-**前置**：W7 評估數據完整
+**前置**：M7 評估數據完整
 **完成判準**：報告交付、demo 影片產出、GitHub 整理乾淨
 
 - [ ] 8.1 撰寫報告 Ch1–3（動機 / 目標 / 系統架構）— 直接從 v3 企劃書改寫
 - [ ] 8.2 撰寫報告 Ch4–5（核心功能 / DB schema）
-- [ ] 8.3 撰寫報告 Ch6（評估結果）— 灌 W7 數據
+- [ ] 8.3 撰寫報告 Ch6（評估結果）— 灌 M7 數據
 - [ ] 8.4 撰寫報告 Ch7 案例分析：挑 3–5 個從推送 → 收藏 → 完整生命週期事件，附時間軸圖
 - [ ] 8.5 撰寫報告 Ch8 倫理章節（隱私 / 去識別化 / 資料刪除）
 - [ ] 8.6 錄 5 分鐘 demo 影片：推送 → 收藏 → 後續觸發 → 問答
@@ -133,12 +133,12 @@
 
 ---
 
-## 跨週風險檢查點
+## 里程碑風險檢查點
 
 | 時點 | 檢查 | 觸發條件 |
 |------|------|---------|
-| W1 結束 | Apify 是否可用、成本是否爆 | NO-GO → 改備案：fake 跑通流水線 + 模擬資料案例 |
-| W3 結束 | Haiku 與人工標記準確率 | < 60% → 多花 2 天調 prompt 再進 W4 |
-| W4 結束 | Telegram bot 真的能推送 | 推不出 → 卡住一切後續，優先除錯 |
-| W6 結束 | 問答 token 成本 | 單次 > $0.3 → 強制降中量 context 為預設 |
-| W7 結束 | 收藏率 | < 15% → 報告誠實寫，但要分析原因（評分 vs 使用者口味）|
+| M1 完成 | Apify 是否可用、成本是否爆 | NO-GO → 改備案：fake 跑通流水線 + 模擬資料案例 |
+| M3 完成 | Haiku 與人工標記準確率 | < 60% → 補一輪 prompt 調整再進 M4 |
+| M4 完成 | Telegram bot 真的能推送 | 推不出 → 卡住一切後續，優先除錯 |
+| M6 完成 | 問答 token 成本 | 單次 > $0.3 → 強制降中量 context 為預設 |
+| M7 完成 | 收藏率 | < 15% → 報告誠實寫，但要分析原因（評分 vs 使用者口味）|
