@@ -4,7 +4,7 @@
 > 完整企劃見 `threads_tracker_proposal_v3.md`、任務級里程碑見 `SCHEDULE.md`（v2 已過時，保留作為歷史對照）。
 > 進度以里程碑（M1–M8）追蹤，不再用週數。
 
-**Last updated:** 2026-05-10（M1 完成、actor 選定 watcher.data）
+**Last updated:** 2026-05-10（M2 完成 — schema、discovery、seed loader、scheduler）
 
 ---
 
@@ -12,8 +12,8 @@
 
 | 里程碑 | 主題 | 狀態 | 備註 |
 |--------|------|------|------|
-| M1 | Apify 可行性驗證 | ✅ **GO** | watcher.data，欄位 21/22 對齊，月成本 ~$246（每 6h × max=3） |
-| M2 | 探索層 + DB 重構 | ❌ | 新 schema 待設計 migration |
+| M1 | Apify 可行性驗證 | ✅ **GO** | watcher.data，欄位 21/22 對齊，採每 12h × max=2 ≈ $84/月（降規後） |
+| M2 | 探索層 + DB 重構 | ✅ | v3 schema (10 表 + ER 圖)、discovery service、seed loader、scheduler；27 passed |
 | M3 | 評分層 | ❌ | Haiku 評分 prompt 待寫 |
 | M4 | 候選排程 + 推送層 | ❌ | inline button 流程待寫 |
 | M5 | 收藏追蹤層 | ❌ | 四類後續事件偵測待寫 |
@@ -54,22 +54,32 @@ v1 已完成的東西，按 v3 架構重新審視：
 
 ## 下一步（單一優先）
 
-**M2：探索層 + DB 重構**。M1 已驗 GO，可以直接開工。具體：
+**M3：評分層**。需要 M2 累積至少 200 筆 candidate 後才能盲測 prompt。具體：
 
-1. 在 markdown 畫 v3 完整 ER 圖（10 張表、FK 關係）
-2. 改寫 `models.py`：新增 7 張表、改 `tracked_posts` FK 為 `candidate_post_id`
-3. 刪舊 migration、重生 alembic v3 schema
-4. 把 `seeds/keyword_seeds.py` 載進 `keyword_seeds` table fixture
-5. 寫 `services/discovery.py`：呼叫 `WatcherDataSearchScraper.search_keywords` → 寫 `candidate_posts`（去重用 `threads_post_id` UNIQUE）
-6. 接 `scheduler.py`：`discovery_job` 每 6 小時跑一次（依 M1 成本估算）
+1. 啟動 scheduler 跑 1–3 天蒐集真實 candidate（也可手動 `python -m threads_tracker.seeds.loader && python -c "..."` 觸發 discovery）
+2. 寫 `services/scoring.py` 第一層硬規則：互動速度 / 粉絲數 / 文字長度 / 繁中檢測 / 業配黑名單
+3. 寫 Haiku 評分 prompt（五項 0–1 + verdict + reason，JSON 輸出）
+4. 接 `llm/haiku.py` 新增 `score_candidate`
+5. 加權合併：`final_score = 0.4·v + 0.3·s + 0.2·g + 0.1·n`
+6. 寫 `scoring_records` 三段式寫入（rules → haiku → final）
+7. 接 `scheduler.py`：`scoring_job` 每 30 分鐘
+8. 從 M2 資料隨機抽 30 篇人工標記，跟 Haiku verdict 對比準確率
 
 ## M1 結論（2026-05-10）
 
 - **actor**：`watcher.data/search-threads-by-keywords`（5+ 支比對後選定，理由：keywords 陣列、跨 keyword 自動 dedup、活躍維護、$8/1000 results 略貴但 ops 簡）
 - **欄位 mapping**：21/22 expected 全 100% 命中；缺 `lang`（不影響）；多出 `raw_data` 已透過 `raw=item` 整包保留
 - **吞吐**：30 keyword × max=3 → 258 筆（actor 對 max 不嚴格，每 keyword 平均 8.6 筆）
-- **成本**：單次 ~$2/run；推薦頻率「每 6h × max=3」≈ **$246/月**（畢業專案預算可撐）
-- **降規備案**：若 quota 吃緊，可降為「每 12h × max=2」≈ $80/月
+- **成本決策**：採「每 12h × max=2 ≈ $84/月」為 production 預設（M2 scheduler config）；研究自寫 scraper 的 ROI 過低（見 `research/self-scraper` 分支報告）
+
+## M2 完成項（2026-05-10）
+
+- 10 張 v3 表（含 `llm_records` 統一 audit）；ER 圖：[`docs/v3_schema.md`](docs/v3_schema.md)
+- alembic v3 migration（`3cc2f42838db`）取代 v1 single revision
+- `services/discovery.py`：批次餵 keywords，threads_post_id UNIQUE 去重，更新 seed 統計
+- `seeds/loader.py`：30 keyword 冪等寫入 DB（`uv run python -m threads_tracker.seeds.loader`）
+- `scheduler.py`：`discovery_job`（IntervalTrigger，預設 12h）、`polling_job`（M5 才有資料）、`daily_push_job`（M4 placeholder）
+- v1 user-flow（/track/list/untrack + Subscription）拔掉，bot 暫時 stub；M4 重寫
 
 ---
 

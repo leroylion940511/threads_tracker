@@ -26,16 +26,17 @@
 ## M2 — 探索層 + DB 重構
 
 **前置**：M1 GO
-**完成判準**：每 60 分鐘自動跑一次 discovery，寫入 `candidate_posts`
+**完成判準**：自動跑 discovery，寫入 `candidate_posts` 並更新 `keyword_seeds` 統計
+**頻率決策**：依 M1 成本估算採每 12h × max=2 ≈ $84/月（config 可調）
 
-- [ ] 2.1 在 markdown 畫 v3 完整 ER 圖（10 張表、FK 關係）
-- [ ] 2.2 改寫 `models.py`：新增 7 張表（`candidate_posts` / `scoring_records` / `daily_pushes` / `feedback` / `qa_sessions` / `qa_messages` / `keyword_seeds`），改 `tracked_posts` FK
-- [ ] 2.3 刪舊 migration `a1efa9e7d751_*.py`、`rm data/threads_tracker.sqlite3`、`alembic revision --autogenerate -m "v3 schema"`
-- [ ] 2.4 跑 `alembic upgrade head` 驗證、寫 schema smoke test
-- [ ] 2.5 建 `keyword_seeds` 初始 fixture：30 個觸發詞分 5 類（後續暗示 / 求助共鳴 / 事件性 / 敘事開頭 / 情緒爆發）
-- [ ] 2.6 寫 `services/discovery.py`：跑單一 keyword → 呼叫 scraper → 寫 `candidate_posts`（去重用 `threads_post_id` UNIQUE）
-- [ ] 2.7 接 `scheduler.py`：新增 `discovery_job` 每 60 分鐘跑一次，更新 `keyword_seeds.last_polled_at` 與 `total_candidates_yielded`
-- [ ] 2.8 寫 unit test：用 fake scraper 模擬 discovery，確認去重與 `keyword_seeds` 統計正確
+- [x] 2.1 ER 圖（mermaid）→ `docs/v3_schema.md`
+- [x] 2.2 改寫 `models.py`：新增 8 張表（含 `llm_records`），改 `tracked_posts` FK
+- [x] 2.3 刪舊 migration、`rm data/threads_tracker.sqlite3`、重生 v3 migration
+- [x] 2.4 `alembic upgrade head` 驗證；27 passed（v3 smoke + summarization + discovery）
+- [x] 2.5 `seeds/keyword_seeds.py` 30 詞 + `seeds/loader.py` 冪等寫入 DB
+- [x] 2.6 `services/discovery.py`：批次餵 keywords → 寫 `candidate_posts`（threads_post_id UNIQUE 去重）
+- [x] 2.7 `scheduler.py`：新增 `discovery_job`（IntervalTrigger，預設 12h），更新 seed `last_polled_at` + `total_candidates_yielded`
+- [x] 2.8 `tests/test_discovery.py`：6 個 unit test 涵蓋 seed loading、dedup、disabled seed、stat update
 
 ---
 

@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     apify_actor_id: str = "apify/threads-scraper"
     apify_search_actor_id: str = "watcher.data/search-threads-by-keywords"
 
+    # v3 探索層頻率：依 M1 成本估算，每 12h × max=2 ≈ $84/月（保守起點）
+    discovery_interval_hours: int = Field(12, ge=1)
+    discovery_max_per_keyword: int = Field(2, ge=1, le=2000)
+    discovery_sort_by_recent: bool = True
+
     # LLM provider 切換：anthropic（預設）/ minimax；驗證在 llm.factory
     llm_provider: str = "anthropic"
 
