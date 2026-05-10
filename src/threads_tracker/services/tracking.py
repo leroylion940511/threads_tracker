@@ -27,9 +27,17 @@ logger = get_logger(__name__)
 
 
 class TrackingService:
-    def __init__(self, session: AsyncSession, fetcher: PostFetcher) -> None:
+    def __init__(
+        self, session: AsyncSession, fetcher: PostFetcher | None = None
+    ) -> None:
         self._session = session
         self._fetcher = fetcher
+
+    @property
+    def _ensured_fetcher(self) -> PostFetcher:
+        if self._fetcher is None:
+            raise RuntimeError("TrackingService.poll_once requires a PostFetcher")
+        return self._fetcher
 
     # --- 候選層 ----------------------------------------------------------
 
@@ -123,7 +131,7 @@ class TrackingService:
             raise RuntimeError(
                 f"TrackedPost #{tracked.id} candidate has no post_url"
             )
-        payload = await self._fetcher.fetch_post(candidate.post_url)
+        payload = await self._ensured_fetcher.fetch_post(candidate.post_url)
         snapshot = await self._record_snapshot(tracked, payload)
         tracked.last_polled_at = datetime.now(timezone.utc)
         await self._session.commit()
