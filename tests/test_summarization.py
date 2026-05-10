@@ -1,4 +1,4 @@
-"""SummarizationService 行為測試（不打外部 API）."""
+"""SummarizationService 行為測試（v3 schema、不打外部 API）."""
 
 from __future__ import annotations
 
@@ -12,11 +12,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from threads_tracker.db import Base
 from threads_tracker.llm.opus import EvolutionSummary
 from threads_tracker.models import (
-    LLMSummary,
+    LLMPurpose,
+    LLMRecord,
     RelatedPost,
     RelationType,
-    SummaryType,
 )
+from threads_tracker.scrapers.base import parse_threads_url
 from threads_tracker.scrapers.fake import FakeThreadsScraper
 from threads_tracker.services.summarization import (
     SummarizationService,
@@ -63,10 +64,13 @@ async def session():
 
 
 async def _seed_post(session, *, polls: int = 2):
-    service = TrackingService(session, FakeThreadsScraper())
-    tracked = await service.add_tracked_post(
-        "https://www.threads.net/@alice/post/EVOLVE1"
-    )
+    fetcher = FakeThreadsScraper()
+    url = "https://www.threads.net/@alice/post/EVOLVE1"
+    parse_threads_url(url)
+    payload = await fetcher.fetch_post(url)
+    service = TrackingService(session, fetcher)
+    candidate = await service.add_candidate(payload, discovery_source="test")
+    tracked = await service.promote_candidate(candidate.id)
     for _ in range(polls):
         await service.poll_once(tracked)
     return tracked
@@ -80,7 +84,7 @@ async def test_get_or_create_evolution_persists_and_caches(session):
     record = await service.get_or_create_evolution(tracked.id)
     assert record is not None
     assert summarizer.calls == 1
-    assert record.summary_type == SummaryType.EVOLUTION.value
+    assert record.purpose == LLMPurpose.EVOLUTION.value
     parsed = parse_evolution(record)
     assert parsed.narrative == "敘事 #1"
     assert parsed.milestones == ["第一節點", "第二節點"]
@@ -103,9 +107,9 @@ async def test_evolution_cache_expires_after_window(session):
     summarizer = FakeSummarizer()
     service = SummarizationService(session, summarizer, cache_hours=24)
 
-    stale = LLMSummary(
-        tracked_post_id=tracked.id,
-        summary_type=SummaryType.EVOLUTION.value,
+    stale = LLMRecord(
+        purpose=LLMPurpose.EVOLUTION.value,
+        related_id=tracked.id,
         model="opus",
         content=json.dumps(
             {"narrative": "舊", "milestones": [], "suggests_push": False}

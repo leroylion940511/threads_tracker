@@ -1,25 +1,23 @@
 """FastAPI application + minimal HTTP API.
 
 Telegram bot is the primary user surface; this HTTP layer exists for ops
-visibility (health, current tracked posts, manual triggers) and for the
-Apify webhook callback that some actor configurations need.
+visibility (health, current tracked / candidate posts) and for the Apify
+webhook callback that some actor configurations need.
 """
 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_session
 from .logging import configure_logging, get_logger
-from .models import DetectionSource, PostSnapshot, TrackedPost
-from .schemas import SnapshotOut, TrackedPostOut, TrackRequest
+from .models import CandidatePost, PostSnapshot, TrackedPost
+from .schemas import CandidatePostOut, SnapshotOut, TrackedPostOut
 from .scheduler import build_scheduler
-from .scrapers.factory import get_fetcher
-from .services.tracking import TrackingService
 
 logger = get_logger(__name__)
 
@@ -37,7 +35,7 @@ async def lifespan(app: FastAPI):
         logger.info("api.shutdown")
 
 
-app = FastAPI(title="Threads Tracker", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Threads Tracker", version="0.2.0", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -45,32 +43,32 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/tracked-posts", response_model=TrackedPostOut)
-async def track_post(
-    body: TrackRequest,
+@app.get("/api/candidates", response_model=list[CandidatePostOut])
+async def list_candidates(
     session: AsyncSession = Depends(get_session),
-) -> TrackedPostOut:
-    fetcher = get_fetcher()
-    service = TrackingService(session, fetcher)
-    try:
-        tracked = await service.add_tracked_post(
-            str(body.post_url), source=DetectionSource.MANUAL
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    return TrackedPostOut.model_validate(tracked)
+    limit: int = 50,
+) -> list[CandidatePostOut]:
+    stmt = (
+        select(CandidatePost)
+        .order_by(CandidatePost.discovered_at.desc())
+        .limit(limit)
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    return [CandidatePostOut.model_validate(r) for r in rows]
 
 
 @app.get("/api/tracked-posts", response_model=list[TrackedPostOut])
 async def list_tracked(
     session: AsyncSession = Depends(get_session),
 ) -> list[TrackedPostOut]:
-    stmt = select(TrackedPost).order_by(TrackedPost.detected_at.desc())
+    stmt = select(TrackedPost).order_by(TrackedPost.promoted_at.desc())
     rows = (await session.execute(stmt)).scalars().all()
     return [TrackedPostOut.model_validate(r) for r in rows]
 
 
-@app.get("/api/tracked-posts/{tracked_id}/snapshots", response_model=list[SnapshotOut])
+@app.get(
+    "/api/tracked-posts/{tracked_id}/snapshots", response_model=list[SnapshotOut]
+)
 async def list_snapshots(
     tracked_id: int,
     session: AsyncSession = Depends(get_session),

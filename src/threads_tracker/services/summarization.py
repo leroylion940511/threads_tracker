@@ -1,8 +1,8 @@
-"""Opus 摘要 + 純資料時間軸（提案 §4.5 / W4 任務）.
+"""Opus 摘要 + 純資料時間軸（v3 用 LLMRecord、candidate-based 內容）.
 
 兩個職責：
 - ``get_or_create_evolution``：把 original_post + 作者後續 + 熱門留言餵 Opus，
-  寫進 ``llm_summaries``；24h 內同一貼文不重算（cache）。
+  寫進 ``llm_records`` (purpose=evolution)；24h 內同一貼文不重算（cache）。
 - ``build_timeline``：純資料拼貼（snapshots + related_posts），不打 LLM。
 """
 
@@ -15,15 +15,16 @@ from typing import Any, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ..llm.base import EvolutionSummary
 from ..logging import get_logger
 from ..models import (
-    LLMSummary,
+    LLMPurpose,
+    LLMRecord,
     PostSnapshot,
     RelatedPost,
     RelationType,
-    SummaryType,
     TrackedPost,
 )
 
@@ -46,7 +47,7 @@ class EvolutionSummarizer(Protocol):
 @dataclass(slots=True)
 class TimelineItem:
     occurred_at: datetime
-    kind: str  # "original" | "metrics" | author_followup | quote | discussion
+    kind: str  # "original" | "metrics" | author_followup | quote | author_reply | hot_reply
     title: str
     detail: str | None = None
 
@@ -65,8 +66,8 @@ class SummarizationService:
 
     async def get_or_create_evolution(
         self, tracked_post_id: int, *, force: bool = False
-    ) -> LLMSummary | None:
-        tracked = await self._session.get(TrackedPost, tracked_post_id)
+    ) -> LLMRecord | None:
+        tracked = await self._load_tracked(tracked_post_id)
         if tracked is None:
             return None
 
@@ -85,7 +86,7 @@ class SummarizationService:
 
         followups = await self._fetch_followups(tracked_post_id)
         top_replies = await self._fetch_top_replies(tracked_post_id)
-        original = tracked.original_content or ""
+        original = (tracked.candidate.content if tracked.candidate else None) or ""
 
         result = await self._summarizer.summarize_evolution(
             original_post=original,
@@ -93,9 +94,9 @@ class SummarizationService:
             top_replies=top_replies,
         )
 
-        record = LLMSummary(
-            tracked_post_id=tracked_post_id,
-            summary_type=SummaryType.EVOLUTION.value,
+        record = LLMRecord(
+            purpose=LLMPurpose.EVOLUTION.value,
+            related_id=tracked_post_id,
             model="opus",
             content=json.dumps(asdict(result), ensure_ascii=False),
         )
@@ -111,16 +112,17 @@ class SummarizationService:
         return record
 
     async def build_timeline(self, tracked_post_id: int) -> list[TimelineItem]:
-        tracked = await self._session.get(TrackedPost, tracked_post_id)
+        tracked = await self._load_tracked(tracked_post_id)
         if tracked is None:
             return []
+        candidate = tracked.candidate
 
         items: list[TimelineItem] = [
             TimelineItem(
-                occurred_at=_aware(tracked.detected_at),
+                occurred_at=_aware(tracked.promoted_at),
                 kind="original",
-                title=f"@{tracked.author_username} 原貼文",
-                detail=_clip(tracked.original_content),
+                title=f"@{candidate.author_username if candidate else '?'} 原貼文",
+                detail=_clip(candidate.content if candidate else None),
             )
         ]
 
@@ -150,11 +152,7 @@ class SummarizationService:
 
         related = await self._fetch_related(tracked_post_id)
         for r in related:
-            label = {
-                RelationType.AUTHOR_FOLLOWUP.value: "作者後續",
-                RelationType.QUOTE.value: "他人引用",
-                RelationType.DISCUSSION.value: "相關討論",
-            }.get(r.relation_type, r.relation_type)
+            label = _RELATION_LABELS.get(r.relation_type, r.relation_type)
             items.append(
                 TimelineItem(
                     occurred_at=_aware(r.posted_at or r.discovered_at),
@@ -169,14 +167,22 @@ class SummarizationService:
 
     # --- internals --------------------------------------------------------
 
-    async def _latest_evolution(self, tracked_post_id: int) -> LLMSummary | None:
+    async def _load_tracked(self, tracked_post_id: int) -> TrackedPost | None:
         stmt = (
-            select(LLMSummary)
+            select(TrackedPost)
+            .where(TrackedPost.id == tracked_post_id)
+            .options(selectinload(TrackedPost.candidate))
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def _latest_evolution(self, tracked_post_id: int) -> LLMRecord | None:
+        stmt = (
+            select(LLMRecord)
             .where(
-                LLMSummary.tracked_post_id == tracked_post_id,
-                LLMSummary.summary_type == SummaryType.EVOLUTION.value,
+                LLMRecord.purpose == LLMPurpose.EVOLUTION.value,
+                LLMRecord.related_id == tracked_post_id,
             )
-            .order_by(LLMSummary.generated_at.desc())
+            .order_by(LLMRecord.generated_at.desc())
             .limit(1)
         )
         return (await self._session.execute(stmt)).scalar_one_or_none()
@@ -243,9 +249,17 @@ class SummarizationService:
         return out
 
 
-def parse_evolution(record: LLMSummary) -> EvolutionSummary:
-    """把 LLMSummary.content 還原成 EvolutionSummary（給 bot 顯示用）."""
-    data = json.loads(record.content)
+_RELATION_LABELS = {
+    RelationType.AUTHOR_FOLLOWUP.value: "作者後續",
+    RelationType.AUTHOR_REPLY.value: "作者回留言",
+    RelationType.HOT_REPLY.value: "熱門留言",
+    RelationType.QUOTE.value: "他人引用",
+}
+
+
+def parse_evolution(record: LLMRecord) -> EvolutionSummary:
+    """把 LLMRecord.content 還原成 EvolutionSummary（給 bot 顯示用）."""
+    data = json.loads(record.content or "{}")
     return EvolutionSummary(
         narrative=data.get("narrative", ""),
         milestones=list(data.get("milestones", [])),

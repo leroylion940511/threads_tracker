@@ -63,14 +63,14 @@ async def select_due_posts(
 
 
 async def reconcile_tiers(session: AsyncSession, *, now: datetime | None = None) -> int:
-    """根據 detected_at 把每個 active post 的 polling_tier 重新對齊；超過 30 天歸檔."""
+    """根據 promoted_at 把每個 active post 的 polling_tier 重新對齊；超過 30 天歸檔."""
     now = now or datetime.now(timezone.utc)
     stmt = select(TrackedPost).where(TrackedPost.status == PostStatus.ACTIVE.value)
     posts = list((await session.execute(stmt)).scalars().all())
 
     changed = 0
     for p in posts:
-        new_tier = tier_for_age(p.detected_at, now=now)
+        new_tier = tier_for_age(p.promoted_at, now=now)
         if new_tier is None:
             if p.status != PostStatus.ARCHIVED.value:
                 p.status = PostStatus.ARCHIVED.value
@@ -79,7 +79,7 @@ async def reconcile_tiers(session: AsyncSession, *, now: datetime | None = None)
         if p.polling_tier != new_tier.value:
             logger.info(
                 "polling.tier_changed",
-                post_id=p.threads_post_id,
+                tracked_id=p.id,
                 old=p.polling_tier,
                 new=new_tier.value,
             )
@@ -103,7 +103,7 @@ async def run_polling_cycle(session: AsyncSession, fetcher: PostFetcher) -> int:
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "polling.fetch_failed",
-                post_id=tracked.threads_post_id,
+                tracked_id=tracked.id,
                 error=str(exc),
             )
     logger.info("polling.cycle_done", polled=n, due=len(due))

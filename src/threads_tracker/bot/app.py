@@ -19,14 +19,9 @@ def build_application() -> Application:
     app = ApplicationBuilder().token(s.telegram_bot_token).build()
     app.add_handler(CommandHandler("start", handlers.start_cmd))
     app.add_handler(CommandHandler("help", handlers.help_cmd))
-    app.add_handler(CommandHandler("track", handlers.track_cmd))
-    app.add_handler(CommandHandler("list", handlers.list_cmd))
-    app.add_handler(CommandHandler("untrack", handlers.untrack_cmd))
-    app.add_handler(CommandHandler("poll", handlers.poll_cmd))
-    app.add_handler(CommandHandler("digest", handlers.digest_cmd))
-    app.add_handler(CommandHandler("timeline", handlers.timeline_cmd))
-    app.add_handler(CommandHandler("settings", handlers.settings_cmd))
-    app.add_handler(CommandHandler("explore", handlers.explore_cmd))
+    # v3 placeholder commands — wired in M4 / M5 / M6
+    for name in ("feed", "saved", "ask", "exit", "digest", "timeline"):
+        app.add_handler(CommandHandler(name, handlers.deferred_cmd))
     return app
 
 
