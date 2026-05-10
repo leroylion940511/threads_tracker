@@ -8,15 +8,18 @@
 ## M1 — Apify 可行性驗證（阻塞所有後續）
 
 **前置**：無
+**選定 actor**：`watcher.data/search-threads-by-keywords`（$8/1000 results、keywords 陣列、自動跨 keyword 去重；2026-05-10 比對 5+ Threads scrapers 後選定）
 **完成判準**：能用關鍵字穩定取得貼文流，知道每月成本上限
 
-- [ ] 1.1 註冊 Apify、申請 token、寫進 `.env` 的 `APIFY_TOKEN`
-- [ ] 1.2 用 `automation-lab/threads-scraper` 跑單一 url 抓取，印出 raw response 確認連線 OK
-- [ ] 1.3 切換 search 模式，用一個關鍵字（例：「後來」）跑一次，印 raw response
-- [ ] 1.4 比對 `scrapers/apify.py::_normalize_post` 欄位名，列出哪些對 / 哪些要改
-- [ ] 1.5 修 `_normalize_post`，跑通到 `tracking.add_tracked_post` 能寫入一筆真實 candidate
-- [ ] 1.6 跑 10 次 search、記錄 compute units 消耗，推算每 60 分鐘 × 30 種子的月成本
-- [ ] 1.7 寫一頁 M1 結論（成本是否可接受、欄位 mapping 結果），決定 GO / NO-GO
+- [x] 1.1 註冊 Apify、申請 token、寫進 `.env` 的 `APIFY_TOKEN`
+- [x] 1.2 比對 Apify Store 上 Threads 相關 actor，選定 `watcher.data/search-threads-by-keywords`
+- [x] 1.3 寫 `scrapers/watcher.py::WatcherDataSearchScraper`：餵 keywords 陣列、回 list[PostPayload]
+- [x] 1.4 草擬 30 個 keyword seeds（5 類 × 6），存進 `seeds/keyword_seeds.py`
+- [x] 1.5 跑 `scripts/m1_apify_smoke.py` 預設 3 個 keyword × max=5：32 筆，連線 OK
+- [x] 1.6 欄位比對：21/22 expected fields 全 100% 命中，`lang` 缺（不影響）；多出 `raw_data` 欄位（已透過 `raw=item` 全保留）
+- [x] 1.7 全 30 seed × max=3：**258 筆**（actor 不嚴格遵守 max，平均 8.6/kw），單次成本 ~$2.06
+- [x] 1.8 月成本估算：每 4h × 30 seed × max=3 ≈ $370/月；max=10 估 ~$860/月。**Starter 方案 ($49/月) 配合 max=3、每 6h 一次** 是合理區間（~$246/月，預算內）
+- [ ] 1.9 寫 M1 結論段（PROGRESS.md「下一步」改寫成 M2），標 GO / NO-GO
 
 ---
 

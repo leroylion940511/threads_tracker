@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
     apify_token: str | None = None
     apify_actor_id: str = "apify/threads-scraper"
+    apify_search_actor_id: str = "watcher.data/search-threads-by-keywords"
 
     # LLM provider 切換：anthropic（預設）/ minimax；驗證在 llm.factory
     llm_provider: str = "anthropic"

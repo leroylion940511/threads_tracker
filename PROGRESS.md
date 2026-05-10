@@ -4,7 +4,7 @@
 > 完整企劃見 `threads_tracker_proposal_v3.md`、任務級里程碑見 `SCHEDULE.md`（v2 已過時，保留作為歷史對照）。
 > 進度以里程碑（M1–M8）追蹤，不再用週數。
 
-**Last updated:** 2026-05-07（v3 reset day）
+**Last updated:** 2026-05-10（M1 完成、actor 選定 watcher.data）
 
 ---
 
@@ -12,7 +12,7 @@
 
 | 里程碑 | 主題 | 狀態 | 備註 |
 |--------|------|------|------|
-| M1 | Apify 可行性驗證 | ⏳ 阻塞中 | 沒 token，今天先寫完企劃書 |
+| M1 | Apify 可行性驗證 | ✅ **GO** | watcher.data，欄位 21/22 對齊，月成本 ~$246（每 6h × max=3） |
 | M2 | 探索層 + DB 重構 | ❌ | 新 schema 待設計 migration |
 | M3 | 評分層 | ❌ | Haiku 評分 prompt 待寫 |
 | M4 | 候選排程 + 推送層 | ❌ | inline button 流程待寫 |
@@ -54,14 +54,22 @@ v1 已完成的東西，按 v3 架構重新審視：
 
 ## 下一步（單一優先）
 
-**M1：Apify 可行性驗證**。沒 token 之前無法前進。具體：
+**M2：探索層 + DB 重構**。M1 已驗 GO，可以直接開工。具體：
 
-1. 註冊 Apify、拿到 `APIFY_TOKEN` 寫進 `.env`
-2. 用 `automation-lab/threads-scraper` 跑一次「關鍵字 search 模式」（不是抓單一 url），確認能不能用「後來」「求後續」這類觸發詞流式取得貼文
-3. 校正 `_normalize_post`：欄位名（threads_post_id / username / like_count / reply_count / repost_count / replies）對哪幾個、要改哪些
-4. 估免費 / 付費額度：每跑 100 次 search 用掉多少 quota，決定是否能撐每 60 分鐘 × 30 種子的探索頻率
+1. 在 markdown 畫 v3 完整 ER 圖（10 張表、FK 關係）
+2. 改寫 `models.py`：新增 7 張表、改 `tracked_posts` FK 為 `candidate_post_id`
+3. 刪舊 migration、重生 alembic v3 schema
+4. 把 `seeds/keyword_seeds.py` 載進 `keyword_seeds` table fixture
+5. 寫 `services/discovery.py`：呼叫 `WatcherDataSearchScraper.search_keywords` → 寫 `candidate_posts`（去重用 `threads_post_id` UNIQUE）
+6. 接 `scheduler.py`：`discovery_job` 每 6 小時跑一次（依 M1 成本估算）
 
-如果 M1 結束 token 仍拿不到，**進入備案**：用 fake scraper 把整條流水線跑通，案例分析章節改用「模擬資料」並在報告中誠實說明。
+## M1 結論（2026-05-10）
+
+- **actor**：`watcher.data/search-threads-by-keywords`（5+ 支比對後選定，理由：keywords 陣列、跨 keyword 自動 dedup、活躍維護、$8/1000 results 略貴但 ops 簡）
+- **欄位 mapping**：21/22 expected 全 100% 命中；缺 `lang`（不影響）；多出 `raw_data` 已透過 `raw=item` 整包保留
+- **吞吐**：30 keyword × max=3 → 258 筆（actor 對 max 不嚴格，每 keyword 平均 8.6 筆）
+- **成本**：單次 ~$2/run；推薦頻率「每 6h × max=3」≈ **$246/月**（畢業專案預算可撐）
+- **降規備案**：若 quota 吃緊，可降為「每 12h × max=2」≈ $80/月
 
 ---
 
