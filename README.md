@@ -1,125 +1,121 @@
 # threads_tracker
 
-Threads 熱點貼文後續追蹤系統 — 自動偵測爆紅貼文，持續追蹤後續演進，
-並透過 Telegram 推播 LLM 摘要。完整企劃見 [`threads_tracker_proposal.md`](./threads_tracker_proposal.md)。
+Threads 熱點貼文後續追蹤系統。v3 架構：關鍵字探索 → 多階段評分 →
+每日 Top 5 推送 → 使用者 ❤️ 升格追蹤 → 後續事件偵測 → Opus 問答。
 
-目前可 demo：fake scraper + Telegram bot 串通，`/track /list /poll /digest /timeline`
-都能跑；LLM 摘要支援 **Anthropic Claude** 與 **MiniMax** 兩個 provider，環境變數切換。
-爆紅推播、自動偵測、Apify 真實抓取尚未啟用。
+完整企劃見 [`threads_tracker_proposal_v3.md`](./threads_tracker_proposal_v3.md)、
+任務級進度見 [`SCHEDULE.md`](./SCHEDULE.md)、跨 session 狀態真相見 [`PROGRESS.md`](./PROGRESS.md)。
+
+## 進度
+
+| 里程碑 | 狀態 |
+|--------|------|
+| M1 — Apify 可行性驗證（actor 選定 `watcher.data/search-threads-by-keywords`） | ✅ |
+| M2 — v3 schema + 探索層 + scheduler | ✅ |
+| M3 — 評分層 | ⏳ |
+| M4–M8 — 推送 / 追蹤 / 問答 / 評估 / 報告 | ❌ |
 
 ## 專案結構
 
 ```
 src/threads_tracker/
-├── api.py            # FastAPI app + /api/tracked-posts
-├── bot/              # Telegram bot (python-telegram-bot)
+├── api.py            # FastAPI: /health + /api/candidates + /api/tracked-posts
+├── bot/              # Telegram bot（v3 過渡期 stub，M4 重寫）
 ├── cli.py            # `threads-tracker api|bot`
 ├── config.py         # pydantic-settings (.env)
 ├── db.py             # async SQLAlchemy engine / session
-├── llm/              # Haiku 分類 + Opus 摘要（需 ANTHROPIC_API_KEY）
-├── logging.py        # structlog
-├── models.py         # ORM (對應企劃書 §五 資料表)
-├── scheduler.py      # APScheduler 分級輪詢
+├── llm/              # Haiku（評分）+ Opus（摘要 / 問答）
+├── models.py         # v3 schema：10 張表，見 docs/v3_schema.md
+├── scheduler.py      # APScheduler：discovery / polling / daily_push
 ├── schemas.py        # Pydantic API schemas
-├── scrapers/         # PostFetcher 介面 + Apify + Fake
+├── scrapers/
+│   ├── watcher.py    # watcher.data keyword search（v3 探索層）
+│   ├── apify.py      # v1 single-post / author-timeline（M5 會替換）
+│   └── fake.py       # 本地 dev / 測試
+├── seeds/
+│   ├── keyword_seeds.py  # 30 個觸發詞（5 類）
+│   └── loader.py         # 把 keyword 寫進 DB
 └── services/
-    ├── detection.py  # 爆紅偵測 (§4.1)
-    ├── polling.py    # 分級輪詢 (§4.4)
-    └── tracking.py   # 主要 ingestion 流程
-alembic/              # 資料庫 migration
-tests/                # smoke tests
+    ├── discovery.py  # M2：批次跑 keywords → candidate_posts
+    ├── tracking.py   # candidate → tracked promote 流程
+    ├── polling.py    # 分級輪詢（M5 才有資料）
+    ├── detection.py  # 爆紅 / milestone 偵測
+    └── summarization.py  # Opus 敘事摘要 + 純資料時間軸
+alembic/              # v3 schema migration
+docs/v3_schema.md     # mermaid ER 圖
+tests/                # 27 passed
 ```
 
 ## 開始開發
 
 ```bash
-# 1. 安裝依賴
 uv sync
-
-# 2. 建立 .env
-cp .env.example .env
-# 預設使用 SQLite，可立即跑；要切到 Postgres 改 DATABASE_URL
-
-# 3. 建表
+cp .env.example .env                  # 填 APIFY_TOKEN、ANTHROPIC_API_KEY
 mkdir -p data
 uv run alembic upgrade head
-
-# 4. 跑測試
-uv run pytest
+uv run pytest                         # 27 passed
 ```
 
-## Demo 流程（不需要 Apify token）
-
-最少要填的 `.env`：
+## 灌入 30 個 keyword seeds
 
 ```bash
-TELEGRAM_BOT_TOKEN=...                # 從 @BotFather 拿
-LLM_PROVIDER=minimax                  # 或 anthropic
-MINIMAX_API_KEY=...                   # 對應 provider 的 key
+uv run python -m threads_tracker.seeds.loader
 ```
 
-啟動 bot（fake scraper 會自動接手，無需 Apify）：
+## 跑一次 discovery（手動觸發、不等 scheduler）
 
 ```bash
-uv run threads-tracker bot
+# M1 驗證 actor 是否能跑：
+uv run python scripts/m1_apify_smoke.py                       # 預設 3 keyword × max=5
+uv run python scripts/m1_apify_smoke.py --all --max-per-keyword 3   # 全 30 個
 ```
 
-在 Telegram 對 bot：
+之後 scheduler 會自動跑 discovery（預設每 12h × max=2，依 `.env` 的
+`DISCOVERY_INTERVAL_HOURS` / `DISCOVERY_MAX_PER_KEYWORD` 調整）。
 
-```
-/track https://www.threads.net/@demo/post/HELLO
-/list
-/poll 1                # 重抓一次（demo 用，產生第二筆 snapshot）
-/poll 1                # 再抓一次，互動數會持續成長
-/digest 1              # 呼叫 LLM 產生敘事 + 關鍵節點，24h 內 cache
-/timeline 1            # 純資料時間軸（不打 LLM）
-```
-
-要兩個 process 同時跑（API + scheduler 一邊、bot 一邊）：
+## 啟動服務
 
 ```bash
-uv run threads-tracker api --reload   # http://127.0.0.1:8000/docs
-uv run threads-tracker bot
+uv run threads-tracker api            # FastAPI + scheduler（discovery/polling/daily_push）
+uv run threads-tracker bot            # Telegram bot（v3 過渡期 stub）
 ```
 
 ## 切換 LLM provider
 
 `.env` 設 `LLM_PROVIDER=anthropic` 或 `minimax`：
 
-| Provider  | 必填                                         | 備註                                            |
-|-----------|---------------------------------------------|-------------------------------------------------|
-| anthropic | `ANTHROPIC_API_KEY`                         | 走 Anthropic SDK，預設模型 `claude-opus-4-7`     |
-| minimax   | `MINIMAX_API_KEY`                           | OpenAI 相容 chat completion；可改 base_url / path |
+| Provider  | 必填                  | 備註                                          |
+|-----------|----------------------|-----------------------------------------------|
+| anthropic | `ANTHROPIC_API_KEY`  | 預設，模型 `claude-opus-4-7` / `claude-haiku-4-5` |
+| minimax   | `MINIMAX_API_KEY`    | OpenAI 相容 chat completion；可改 base_url / path |
 
-要接其它 OpenAI 相容服務（DeepSeek、Qwen、自架 vLLM…），暫時用 MiniMax 那條路、改 `MINIMAX_BASE_URL` + `MINIMAX_CHAT_PATH` + `MINIMAX_MODEL` 即可（之後會把它改名成更通用的 `openai_compat`）。
+接 DeepSeek / Qwen / 自架 vLLM 走 `minimax` 路徑改 `MINIMAX_BASE_URL` + `MINIMAX_CHAT_PATH` + `MINIMAX_MODEL`。
 
 ## 抓取器策略
 
-`scrapers.factory.get_fetcher()` 根據環境變數選用：
-
-- 有設 `APIFY_TOKEN` → `ApifyThreadsScraper`
-- 沒設 → `FakeThreadsScraper`（產生遞增的假資料，方便沒有 API key 也能跑通流程）
-
-第一週可行性驗證：
-1. 註冊 Apify、拿 token、把 `APIFY_TOKEN` 填進 `.env`
-2. 跑 `uv run threads-tracker bot`，在 Telegram 對 bot 送 `/track <連結>`
-3. 觀察 logs / DB 是否拿到正確的貼文與留言。
-4. 若欄位對不上，調整 `scrapers/apify.py` 的 `_normalize_post` / `_normalize_reply`。
+| 路徑 | 用途 | 開關 |
+|------|------|------|
+| `WatcherDataSearchScraper` | M2 探索層（keywords array） | 自動，需 `APIFY_TOKEN` |
+| `ApifyThreadsScraper` | v1 single-post / author-timeline（M5 替換） | 自動，需 `APIFY_TOKEN` |
+| `FakeThreadsScraper` | 測試 / 本地 dev | 沒 token 時 fallback |
 
 ## 資料庫 migration
 
 ```bash
-# 改了 ORM 後重新產生
 uv run alembic revision --autogenerate -m "<message>"
 uv run alembic upgrade head
 ```
 
-`alembic/script.py.mako` 已自動 import `threads_tracker.models`，新 migration
-裡的自訂 `JSONField` 等型別可直接使用。
+`alembic/script.py.mako` 已 import `threads_tracker.models`，新 migration 裡的
+`JSONField` 等自訂型別可直接使用。
 
-## 接下來（對應企劃書週次）
+## 成本估算（v3 production）
 
-- **第四週**：✅ `services/summarization.py` + `/digest` `/timeline` 已串通。
-- **第五週**：實作自動偵測（種子來源 → `services/detection.py`）、`/explore` 候選清單，
-  以及每日 21:00 彙整推播（補完 `scheduler._daily_digest_job`）。
-- **第六週**：端到端整合測試、效能調校、撰寫專題報告。
+| 項目 | 配置 | 月成本 |
+|------|------|--------|
+| Apify discovery | 30 seed × 每 12h × max=2 | ~$84 |
+| Haiku 評分 | 200 篇/日 | ~$6 |
+| Opus 摘要 + 問答 | ~10 次/日 | ~$45 |
+| **總計** | | **~$135/月** |
+
+降規 / hybrid 替代方案：見 `research/self-scraper` 分支的 `SELF_SCRAPER_FEASIBILITY.md`。
