@@ -4,7 +4,7 @@
 > 完整企劃見 `threads_tracker_proposal_v3.md`、任務級里程碑見 `SCHEDULE.md`（v2 已過時，保留作為歷史對照）。
 > 進度以里程碑（M1–M8）追蹤，不再用週數。
 
-**Last updated:** 2026-05-10（M2 完成 — schema、discovery、seed loader、scheduler）
+**Last updated:** 2026-05-11（M3 主幹完成 — scoring 三段、Haiku 五軸 prompt、scoring_job、46 passed；尚缺真實資料驗證 + 人工標記）
 
 ---
 
@@ -14,7 +14,7 @@
 |--------|------|------|------|
 | M1 | Apify 可行性驗證 | ✅ **GO** | watcher.data，欄位 21/22 對齊，採每 12h × max=2 ≈ $84/月（降規後） |
 | M2 | 探索層 + DB 重構 | ✅ | v3 schema (10 表 + ER 圖)、discovery service、seed loader、scheduler；27 passed |
-| M3 | 評分層 | ❌ | Haiku 評分 prompt 待寫 |
+| M3 | 評分層 | 🟡 | 主幹完成（規則 / Haiku 五軸 / 加權 / 三段寫入 / scoring_job）；缺真實資料 + 30 篇人工標記驗證 |
 | M4 | 候選排程 + 推送層 | ❌ | inline button 流程待寫 |
 | M5 | 收藏追蹤層 | ❌ | 四類後續事件偵測待寫 |
 | M6 | 問答層 | ❌ | `/ask` 對話模式待寫 |
@@ -54,16 +54,29 @@ v1 已完成的東西，按 v3 架構重新審視：
 
 ## 下一步（單一優先）
 
-**M3：評分層**。需要 M2 累積至少 200 筆 candidate 後才能盲測 prompt。具體：
+**M3 收尾**：主幹（步驟 2–7）已完成，剩兩件需真實資料才能做的事：
 
-1. 啟動 scheduler 跑 1–3 天蒐集真實 candidate（也可手動 `python -m threads_tracker.seeds.loader && python -c "..."` 觸發 discovery）
-2. 寫 `services/scoring.py` 第一層硬規則：互動速度 / 粉絲數 / 文字長度 / 繁中檢測 / 業配黑名單
-3. 寫 Haiku 評分 prompt（五項 0–1 + verdict + reason，JSON 輸出）
-4. 接 `llm/haiku.py` 新增 `score_candidate`
-5. 加權合併：`final_score = 0.4·v + 0.3·s + 0.2·g + 0.1·n`
-6. 寫 `scoring_records` 三段式寫入（rules → haiku → final）
-7. 接 `scheduler.py`：`scoring_job` 每 30 分鐘
-8. 從 M2 資料隨機抽 30 篇人工標記，跟 Haiku verdict 對比準確率
+1. 啟動 scheduler 跑 1–3 天蒐集真實 candidate（或手動觸發 discovery）— 至少 200 筆才能盲測 prompt
+2. ~~寫 `services/scoring.py` 第一層硬規則~~ ✅ `services/scoring.py::apply_hard_rules` — 互動速度 / 粉絲 / 長度 / 繁中 / 業配黑名單
+3. ~~寫 Haiku 評分 prompt~~ ✅ 五軸（story_potential / emotional_pull / grassroots / novelty / authenticity）+ verdict + reason
+4. ~~接 `llm/haiku.py` 新增 `score_candidate`~~ ✅ `HaikuClassifier.score_candidate` 回傳 `CandidateScore`（含 token / cost）
+5. ~~加權合併~~ ✅ `combine_final(rules, haiku)`；s = (story+emo)/2、g、n
+6. ~~`scoring_records` 三段式寫入~~ ✅ `ScoringService.score_candidate`（rules → haiku → final），失敗策略寫進模組 docstring
+7. ~~`scoring_job` 每 30 分鐘~~ ✅ `scheduler.py::_scoring_job`，config `scoring_interval_minutes` / `scoring_batch_limit`
+8. **【待】** 從 M2 資料隨機抽 30 篇人工標記，跟 Haiku verdict 對比準確率（需先有真實資料）
+
+### 觸發評分（手動）
+```bash
+# 1) 建 DB + 載 seed
+uv run alembic upgrade head
+uv run python -m threads_tracker.seeds.loader
+
+# 2) 跑一次 discovery（需 APIFY_TOKEN）
+uv run python -c "import asyncio; from threads_tracker.scheduler import _discovery_job; asyncio.run(_discovery_job())"
+
+# 3) 評分（需 ANTHROPIC_API_KEY；沒 key 只跑規則層）
+uv run python -c "import asyncio; from threads_tracker.scheduler import _scoring_job; asyncio.run(_scoring_job())"
+```
 
 ## M1 結論（2026-05-10）
 

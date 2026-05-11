@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     discovery_max_per_keyword: int = Field(2, ge=1, le=2000)
     discovery_sort_by_recent: bool = True
 
+    # 評分層（M3）：每 N 分鐘掃一次 unscored candidates，批次上限 limit
+    scoring_interval_minutes: int = Field(30, ge=1)
+    scoring_batch_limit: int = Field(50, ge=1, le=500)
+
     # LLM provider 切換：anthropic（預設）/ minimax；驗證在 llm.factory
     llm_provider: str = "anthropic"
 
